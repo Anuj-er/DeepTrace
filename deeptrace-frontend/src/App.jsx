@@ -11,17 +11,36 @@ import ReportPreview from './components/ReportPreview';
 function App() {
   const [currentScreen, setCurrentScreen] = useState('landing');
   const [uploadedFile, setUploadedFile] = useState(null);
+  const [analysisData, setAnalysisData] = useState(null);
   const [user, setUser] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
-  const handleUpload = (file) => {
+  const handleUpload = async (file) => {
     setUploadedFile(file);
-    setTimeout(() => {
+    setAnalyzing(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/analyze', { method: 'POST', body: formData });
+
+      if (!res.ok) throw new Error('Analysis failed');
+
+      const data = await res.json();
+      setAnalysisData(data);
       setCurrentScreen('results');
-    }, 2000);
+    } catch (err) {
+      console.error('Analysis error:', err);
+      alert('Analysis failed. Make sure the backend server is running on port 8000.');
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const handleReset = () => {
     setUploadedFile(null);
+    setAnalysisData(null);
     setCurrentScreen('dashboard');
   };
 
@@ -167,14 +186,14 @@ function App() {
             <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}
               className="flex-grow flex items-center justify-center p-6"
             >
-              <Dashboard onUpload={handleUpload} onNavigate={handleNavigate} />
+              <Dashboard onUpload={handleUpload} onNavigate={handleNavigate} analyzing={analyzing} />
             </motion.div>
           )}
           {currentScreen === 'results' && (
             <motion.div key="results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}
-              className="flex-grow flex items-center justify-center p-6"
+              className="flex-grow p-6"
             >
-              <Results onReset={handleReset} onViewReport={() => setCurrentScreen('report')} file={uploadedFile} />
+              <Results onReset={handleReset} onViewReport={() => setCurrentScreen('report')} file={uploadedFile} data={analysisData} />
             </motion.div>
           )}
           {currentScreen === 'history' && (
@@ -195,7 +214,7 @@ function App() {
             <motion.div key="report" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}
               className="flex-grow"
             >
-              <ReportPreview onBack={() => setCurrentScreen('results')} />
+              <ReportPreview onBack={() => setCurrentScreen('results')} data={analysisData} />
             </motion.div>
           )}
         </AnimatePresence>

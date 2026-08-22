@@ -2,8 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDropzone } from 'react-dropzone';
 
-export default function Dashboard({ onUpload, onNavigate }) {
-  const [isProcessing, setIsProcessing] = useState(false);
+export default function Dashboard({ onUpload, onNavigate, analyzing }) {
   const [selectedFile, setSelectedFile] = useState(null);
   const [preview, setPreview] = useState(null);
 
@@ -17,11 +16,7 @@ export default function Dashboard({ onUpload, onNavigate }) {
 
   const handleAnalyze = () => {
     if (!selectedFile) return;
-    setIsProcessing(true);
-    setTimeout(() => {
-      setIsProcessing(false);
-      if (onUpload) onUpload(selectedFile);
-    }, 2500);
+    if (onUpload) onUpload(selectedFile);
   };
 
   const handleClear = () => {
@@ -34,7 +29,7 @@ export default function Dashboard({ onUpload, onNavigate }) {
     onDrop,
     accept: { 'image/jpeg': [], 'image/png': [], 'image/webp': [] },
     multiple: false,
-    disabled: isProcessing
+    disabled: analyzing
   });
 
   return (
@@ -66,7 +61,7 @@ export default function Dashboard({ onUpload, onNavigate }) {
       {/* Upload Card */}
       <div className="glass-panel p-6">
         <AnimatePresence mode="wait">
-          {isProcessing ? (
+          {analyzing ? (
             /* Processing State */
             <motion.div
               key="processing"
@@ -98,13 +93,13 @@ export default function Dashboard({ onUpload, onNavigate }) {
                     key={step}
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.6 }}
+                    transition={{ delay: i * 0.8 }}
                     className="flex items-center gap-3"
                   >
                     <motion.div
                       initial={{ scale: 0 }}
                       animate={{ scale: 1 }}
-                      transition={{ delay: i * 0.6 + 0.4 }}
+                      transition={{ delay: i * 0.8 + 0.5 }}
                       className="w-5 h-5 rounded-full bg-neonBlue/20 border border-neonBlue/40 flex items-center justify-center flex-shrink-0"
                     >
                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#00f3ff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
@@ -211,7 +206,7 @@ export default function Dashboard({ onUpload, onNavigate }) {
         </AnimatePresence>
       </div>
 
-      {/* Modules Info — subtle, minimal */}
+      {/* Modules Info */}
       <div className="mt-5 grid grid-cols-3 gap-3">
         {[
           { name: 'Face Detection', sub: 'MTCNN', color: '#00f3ff' },
