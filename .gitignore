@@ -65,6 +65,12 @@ htmlcov/
 *.onnx
 *.safetensors
 *.ckpt
+backend/models/*/
+!backend/models/.gitkeep
+
+# Sample test outputs
+sample_picture/*.pdf
+sample_picture/*.env
 
 # IDEs & Editors
 .vscode/*
