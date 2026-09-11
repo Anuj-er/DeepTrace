@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import bcrypt
 from jose import jwt, JWTError
 
@@ -24,7 +24,7 @@ def create_access_token(user_id: str, email: str) -> str:
     Create a JWT access token containing the user ID and email.
     The token will expire after 24 hours.
     """
-    expire = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    expire = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     to_encode = {
         "sub": str(user_id),
         "email": email,

@@ -193,9 +193,9 @@ flowchart TD
 
 ## Model Training
 
-> The current training pipeline is being redesigned. See [`backend/scripts/README.md`](backend/scripts/README.md) for documentation on past training attempts and the technical rationale for the architectural pivot from Swin Transformer to EfficientNet-B4.
+> The custom training pipeline explored three approaches — Swin Transformer on CIFAKE, EfficientNet-B4 binary on ScaleDF, and EfficientNet-B4 134-class fine-grained. See [`backend/scripts/README.md`](backend/scripts/README.md) for full documentation of training attempts, failure analysis, and the resolution.
 
-**Current state:** Using a pre-trained HuggingFace model for inference. Custom EfficientNet-B4 training on FaceForensics++ is in progress.
+**Current state:** Using a pre-trained HuggingFace model ([`dima806/deepfake_vs_real_image_detection`](https://huggingface.co/dima806/deepfake_vs_real_image_detection)) for inference. The model auto-downloads (~200MB) on first startup.
 
 **Model configuration** is controlled via the `DEEPTRACE_MODEL` environment variable — supports both HuggingFace model IDs and local paths:
 
@@ -203,9 +203,49 @@ flowchart TD
 # HuggingFace model (downloads automatically)
 DEEPTRACE_MODEL=dima806/deepfake_vs_real_image_detection
 
-# Local fine-tuned model
+# Local fine-tuned model (if available)
 DEEPTRACE_MODEL=./models/deeptrace-efficientnet
 ```
+
+## Deployment
+
+### Render.com (Recommended)
+
+The project includes a [`render.yaml`](render.yaml) blueprint for one-click deployment:
+
+1. Fork this repository
+2. Go to [Render Dashboard](https://dashboard.render.com/) → **New** → **Blueprint**
+3. Connect your GitHub repo — Render will auto-detect `render.yaml`
+4. Set the required environment variables in the Render dashboard:
+   - `MONGODB_URI` — your MongoDB Atlas connection string
+   - `CLOUDINARY_URL` — your Cloudinary API environment variable (optional)
+5. Deploy!
+
+### Manual Deployment
+
+**Backend** (any Python hosting):
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+Set these environment variables:
+```env
+MONGODB_URI=mongodb+srv://...
+JWT_SECRET=your-random-secret
+DEEPTRACE_MODEL=dima806/deepfake_vs_real_image_detection
+CORS_ORIGINS=https://your-frontend-domain.com
+```
+
+**Frontend** (any static hosting — Vercel, Netlify, Render):
+```bash
+cd frontend
+npm install
+VITE_API_URL=https://your-backend-domain.com npm run build
+```
+
+Deploy the `dist/` folder to any static hosting service.
 
 ## License
 

@@ -59,7 +59,7 @@ const ImageBox = ({ src, label, tag }) => (
 
 const Results = ({ onReset, onViewReport, file, data }) => {
   const d = data || {};
-  const verdict = d.verdict || 'Deepfake';
+  const verdict = d.verdict || 'Unknown';
   const confidence = d.confidence || 0;
   const risk = d.risk_level || 'Unknown';
   const face = d.face_detection || {};
@@ -70,7 +70,8 @@ const Results = ({ onReset, onViewReport, file, data }) => {
   const findings = d.findings || [];
 
   const isReal = verdict === 'Authentic';
-  const verdictColor = isReal ? 'text-green-500' : 'text-red-500';
+  const isSuspicious = verdict === 'Suspicious';
+  const verdictColor = isReal ? 'text-green-500' : isSuspicious ? 'text-yellow-500' : 'text-red-500';
 
   const containerVariants = {
     hidden: { opacity: 0 },

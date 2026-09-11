@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Download, Printer, ShieldAlert, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { API_BASE } from '../App';
 
 const Badge = ({ children, variant }) => {
   const styles = {
@@ -70,7 +71,7 @@ const ReportPreview = ({ onBack, data }) => {
   const handleDownloadPDF = async () => {
     if (!d.id) return alert('No analysis data available');
     try {
-      const res = await fetch(`/api/report/${d.id}`);
+      const res = await fetch(`${API_BASE}/api/report/${d.id}`);
       if (!res.ok) throw new Error('Failed to generate report');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

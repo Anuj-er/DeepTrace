@@ -7,16 +7,17 @@ import os
 import shutil
 import uuid
 import asyncio
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
 # Load environment variables from .env file before anything else
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile, Depends, Header, Request
+from fastapi import FastAPI, File, UploadFile, Depends, Header, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 from analyzer import DeepTraceAnalyzer
 from report import generate_pdf_report
@@ -34,26 +35,13 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # ── config ───────────────────────────────────────────────────────────
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
-# ── app ──────────────────────────────────────────────────────────────
-app = FastAPI(title="DeepTrace API", version="1.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# serve generated images
-app.mount("/api/outputs", StaticFiles(directory=OUTPUT_DIR), name="outputs")
-
-# ── load model on startup ───────────────────────────────────────────
+# ── lifespan ─────────────────────────────────────────────────────────
 analyzer: DeepTraceAnalyzer | None = None
 
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown logic for the application."""
     global analyzer
     try:
         init_db()
@@ -63,6 +51,27 @@ async def startup():
 
     analyzer = DeepTraceAnalyzer()
     print("[DeepTrace] Server ready — all models loaded ✓")
+    yield
+    # shutdown cleanup (if needed in the future)
+
+
+# ── app ──────────────────────────────────────────────────────────────
+app = FastAPI(title="DeepTrace API", version="1.0.0", lifespan=lifespan)
+
+# CORS — configurable via environment variable for production
+cors_origins_str = os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# serve generated images
+app.mount("/api/outputs", StaticFiles(directory=OUTPUT_DIR), name="outputs")
 
 
 # ── auth helpers ─────────────────────────────────────────────────────
@@ -83,8 +92,13 @@ async def require_auth(authorization: str = Header(None)):
     """Dependency that requires a valid JWT token."""
     user = await get_current_user(authorization)
     if not user:
-        return None
+        raise HTTPException(status_code=401, detail="Not authenticated")
     return user
+
+
+async def optional_auth(authorization: str = Header(None)):
+    """Dependency that optionally extracts the user (returns None for guests)."""
+    return await get_current_user(authorization)
 
 
 # ── auth models ──────────────────────────────────────────────────────
@@ -110,12 +124,12 @@ async def register(req: RegisterRequest):
     if len(req.password) < 6:
         return JSONResponse(status_code=400, content={"error": "Password must be at least 6 characters"})
 
-    # check if user already exists
-    existing = get_user_by_email(req.email)
-    if existing:
-        return JSONResponse(status_code=409, content={"error": "An account with this email already exists"})
-
     try:
+        # check if user already exists
+        existing = get_user_by_email(req.email)
+        if existing:
+            return JSONResponse(status_code=409, content={"error": "An account with this email already exists"})
+
         hashed = hash_password(req.password)
         user = create_user(req.name.strip(), req.email.strip().lower(), hashed)
         token = create_access_token(user["_id"], user["email"])
@@ -131,25 +145,27 @@ async def register(req: RegisterRequest):
 @app.post("/api/auth/login")
 async def login(req: LoginRequest):
     """Authenticate a user and return a JWT token."""
-    user = get_user_by_email(req.email.strip().lower())
-    if not user:
-        return JSONResponse(status_code=401, content={"error": "Invalid email or password"})
+    try:
+        user = get_user_by_email(req.email.strip().lower())
+        if not user:
+            return JSONResponse(status_code=401, content={"error": "Invalid email or password"})
 
-    if not verify_password(req.password, user["hashed_password"]):
-        return JSONResponse(status_code=401, content={"error": "Invalid email or password"})
+        if not verify_password(req.password, user["hashed_password"]):
+            return JSONResponse(status_code=401, content={"error": "Invalid email or password"})
 
-    token = create_access_token(user["_id"], user["email"])
-    return {
-        "token": token,
-        "user": {"id": user["_id"], "name": user["name"], "email": user["email"]}
-    }
+        token = create_access_token(user["_id"], user["email"])
+        return {
+            "token": token,
+            "user": {"id": user["_id"], "name": user["name"], "email": user["email"]}
+        }
+    except Exception as e:
+        print(f"[DeepTrace] Login error: {e}")
+        return JSONResponse(status_code=500, content={"error": "Login failed. Please try again."})
 
 
 @app.get("/api/auth/me")
 async def get_me(user=Depends(require_auth)):
     """Get the current authenticated user's profile."""
-    if not user:
-        return JSONResponse(status_code=401, content={"error": "Not authenticated"})
     return {"id": user["_id"], "name": user["name"], "email": user["email"]}
 
 
@@ -161,7 +177,7 @@ async def health():
 
 
 @app.post("/api/analyze")
-async def analyze_image(file: UploadFile = File(...), user=Depends(require_auth)):
+async def analyze_image(file: UploadFile = File(...), user=Depends(optional_auth)):
     """Upload an image and run the full forensic analysis pipeline."""
 
     # validate file type
@@ -194,12 +210,12 @@ async def analyze_image(file: UploadFile = File(...), user=Depends(require_auth)
         # upload to cloudinary (if configured)
         result = await asyncio.to_thread(upload_images_to_cloudinary, result, OUTPUT_DIR)
 
-        # save to database if user is authenticated
-        if user:
-            try:
-                save_analysis(result, user["_id"], file.filename or "unknown")
-            except Exception as db_err:
-                print(f"[DeepTrace] DB save warning: {db_err}")
+        # save to database (for both authenticated and guest users)
+        try:
+            user_id = user["_id"] if user else None
+            save_analysis(result, user_id, file.filename or "unknown")
+        except Exception as db_err:
+            print(f"[DeepTrace] DB save warning: {db_err}")
 
         return result
     except Exception as e:
@@ -232,9 +248,6 @@ async def get_report(analysis_id: str):
 @app.get("/api/history")
 async def get_history(verdict: str = None, sort: str = "newest", user=Depends(require_auth)):
     """Get analysis history for the authenticated user."""
-    if not user:
-        return JSONResponse(status_code=401, content={"error": "Not authenticated"})
-
     try:
         analyses = get_analyses_by_user(user["_id"], verdict_filter=verdict, sort=sort)
 

@@ -127,11 +127,56 @@ We only evaluated on CIFAKE's own test split. No validation was done on:
 
 ### Dataset Change
 - **From:** CIFAKE (32×32 generic objects)
-- **To:** **FaceForensics++** or **DFDC subset** — datasets containing actual manipulated/pristine human face images
+- **To:** **ScaleDF** (14 million diverse images streaming via WebDataset)
 
 ### Data Pipeline Change
 - **From:** Raw `imagefolder` loading with basic transforms
-- **To:** Custom pipeline using **MTCNN to crop faces** from training data (matching inference), plus aggressive augmentation (JPEG compression, blur, noise)
+- **To:** Custom pipeline using aggressive Albumentations (JPEG compression, blur, noise, affine transforms)
+
+---
+
+## 🔴 Phase 3: EfficientNet-B4 + ScaleDF (Binary Classification Failure)
+**Notebook:** `DeepTrace_EfficientNet_Training.ipynb`
+**Model:** `google/efficientnet-b4`
+**Dataset:** ScaleDF (14 million images streaming via HuggingFace Hub)
+
+To fix the issues from Phase 2, we built a highly robust training pipeline using **EfficientNet-B4** (which is much better suited for local pixel artifact detection than Swin) and trained it on **ScaleDF**, a massive dataset of high-resolution faces. We also implemented a bulletproof streaming pipeline using `webdataset` to handle network drops.
+
+**However, this approach also FAILED (Mode Collapse):**
+
+### Failure #1: The Dataset is Too Diverse for Binary Labels
+ScaleDF contains **88 distinct fake generation methods** (StyleGAN, Midjourney, FaceSwap, FSGAN, etc.) and **46 real camera domains**. We attempted to force the model to learn a simple Binary Classification (`0 = Real`, `1 = Fake`). 
+
+Because a cheap DeepFaceLab swap looks fundamentally different mathematically than a high-end Stable Diffusion render, the model could not find a single universal "Fake" rule. Overwhelmed by the variance, the model experienced **Mode Collapse**. It gave up and started guessing randomly (getting stuck at exactly 49.4% accuracy). The Early Stopping callback correctly halted training at 6,000 steps.
+
+---
+
+## 🟢 The New Plan (Version 3)
+
+### Architecture Change: Fine-Grained Classification
+We are moving away from Binary Classification (Real vs Fake). Instead, we will use **Auxiliary Learning / Fine-Grained Classification**.
+- The model will be trained to classify all **134 specific classes** (e.g., "Is this a StyleGAN image?", "Is this an iPhone photo?", "Is this a FSGAN swap?").
+- By forcing the model to learn 134 specialized detectors, it won't be able to take lazy shortcuts or collapse.
+- During inference in our FastAPI backend, if the model predicts *any* of the 88 fake classes, we will map that back to a generic "Fake" verdict for the end user.
+
+---
+
+## 🟢 Phase 4: Resolution — Pre-Trained Model for Production Deployment
+
+After 16 training iterations across 3 distinct architectural approaches (Swin Transformer, EfficientNet-B4 binary, EfficientNet-B4 134-class), we made the pragmatic decision to **deploy with the pre-trained HuggingFace model** for production readiness:
+
+**Model:** [`dima806/deepfake_vs_real_image_detection`](https://huggingface.co/dima806/deepfake_vs_real_image_detection)
+
+**Rationale:**
+- The pre-trained model was already validated end-to-end with our full pipeline (MTCNN → classify → ELA → heatmap → PDF)
+- Our custom training attempts, while unsuccessful in producing a deployable model, generated valuable academic documentation of the research process
+- The training notebooks and this README serve as evidence of the systematic investigation into dataset alignment, architecture selection, and training methodology
+- The `analyzer.py` pipeline already supports swapping in a custom model via the `DEEPTRACE_MODEL` environment variable — if future training succeeds, the model can be hot-swapped without code changes
+
+**Configuration:**
+```env
+DEEPTRACE_MODEL=dima806/deepfake_vs_real_image_detection
+```
 
 ---
 
@@ -143,7 +188,8 @@ We only evaluated on CIFAKE's own test split. No validation was done on:
 4. **Augmentation is not optional for forensics.** Social media compression destroys artifacts; you must simulate this during training.
 5. **Validate on your actual target domain**, not just the training distribution.
 6. **Label mappings must be explicitly verified**, not relied upon via fallback defaults.
+7. **Pragmatic deployment decisions matter.** A working system with a pre-trained model delivers more value than a custom model that never ships.
 
 ---
 
-*Last updated: August 25, 2026*
+*Last updated: September 12, 2026*

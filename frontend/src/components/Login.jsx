@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldCheck, Mail, Lock, User } from 'lucide-react';
+import { API_BASE } from '../App';
 
 const Login = ({ onLogin }) => {
   const [isLogin, setIsLogin] = useState(true);
@@ -19,7 +20,7 @@ const Login = ({ onLogin }) => {
     try {
       if (isLogin) {
         // Login
-        const res = await fetch('/api/auth/login', {
+        const res = await fetch(`${API_BASE}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password }),
@@ -48,7 +49,7 @@ const Login = ({ onLogin }) => {
           return;
         }
 
-        const res = await fetch('/api/auth/register', {
+        const res = await fetch(`${API_BASE}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name.trim(), email, password }),

@@ -42,7 +42,28 @@ class DeepTraceAnalyzer:
         self.processor = AutoImageProcessor.from_pretrained(model_path)
         self.model = AutoModelForImageClassification.from_pretrained(model_path)
         self.model.to(self.device).eval()
-        print("[DeepTrace] Classification model loaded ✓")
+
+        # ── fine-grained class support ───────────────────────────────
+        # If the model has >2 classes (e.g., 134-class ScaleDF), build
+        # real/fake class ID lists to aggregate probabilities at inference.
+        num_labels = self.model.config.num_labels
+        if num_labels > 2:
+            self._real_class_ids = torch.tensor(
+                [int(idx) for idx, name in self.model.config.id2label.items()
+                 if str(name).startswith("000000")],
+                device=self.device,
+            )
+            self._fake_class_ids = torch.tensor(
+                [int(idx) for idx, name in self.model.config.id2label.items()
+                 if not str(name).startswith("000000")],
+                device=self.device,
+            )
+            print(f"[DeepTrace] Fine-grained model: {len(self._real_class_ids)} real + "
+                  f"{len(self._fake_class_ids)} fake = {num_labels} classes ✓")
+        else:
+            self._real_class_ids = None
+            self._fake_class_ids = None
+            print("[DeepTrace] Classification model loaded ✓")
 
         # ── MTCNN face detector ──────────────────────────────────────
         try:
@@ -133,17 +154,24 @@ class DeepTraceAnalyzer:
         heatmap_ok = self._generate_heatmap(image, analysis_id, output_dir)
 
         # 8. generate clear forensic explanation findings
+        gen_method = full_classification.get("generation_method")
         findings = []
         if face_result["detected"]:
             if face_result["manipulation_score"] > 70:
-                findings.append(f"Facial analysis detected high-probability synthetic artifacts and texture anomalies across {face_result['count']} detected face(s).")
+                msg = f"Facial analysis detected high-probability synthetic artifacts and texture anomalies across {face_result['count']} detected face(s)."
+                if gen_method:
+                    msg += f" Pattern consistent with **{gen_method}** generation method."
+                findings.append(msg)
             elif face_result["manipulation_score"] > 40:
                 findings.append(f"Facial analysis detected subtle inconsistencies in facial boundary or skin textures.")
             else:
                 findings.append(f"Facial features appear consistent with natural biological textures across {face_result['count']} detected face(s).")
         else:
             if full_classification["fake_prob"] > 60:
-                findings.append("Vision Transformer detected global generative AI synthesis patterns across image background/textures.")
+                msg = "Vision Transformer detected global generative AI synthesis patterns across image background/textures."
+                if gen_method:
+                    msg += f" Pattern consistent with **{gen_method}** generation method."
+                findings.append(msg)
             else:
                 findings.append("Global image structures and textures exhibit natural optical characteristics.")
 
@@ -169,6 +197,7 @@ class DeepTraceAnalyzer:
             "confidence": round(conf, 1),
             "risk_level": risk,
             "findings": findings,
+            "generation_method": gen_method,
             "face_detection": face_result,
             "ela": ela_result,
             "metadata": metadata,
@@ -194,20 +223,42 @@ class DeepTraceAnalyzer:
             logits = self.model(**inputs).logits
 
         probs = torch.softmax(logits, dim=-1)[0]
-        fake_idx = self.model.config.label2id.get("Fake", 1)
-        real_idx = self.model.config.label2id.get("Real", 0)
 
-        fake_prob = float(probs[fake_idx].item() * 100.0)
-        real_prob = float(probs[real_idx].item() * 100.0)
+        if self._fake_class_ids is not None:
+            # ── Fine-grained model (134 classes) ──
+            fake_prob = float(probs[self._fake_class_ids].sum().item() * 100.0)
+            real_prob = float(probs[self._real_class_ids].sum().item() * 100.0)
 
-        idx = probs.argmax().item()
-        label = self.model.config.id2label.get(idx, str(idx))
-        confidence = float(probs[idx].item() * 100.0)
+            top_idx = probs.argmax().item()
+            top_class = self.model.config.id2label.get(top_idx, str(top_idx))
+            top_confidence = float(probs[top_idx].item() * 100.0)
+
+            # Clean up class name for display
+            display_name = str(top_class).replace("_faces", "").replace("000000", "")
+            generation_method = display_name if display_name else top_class
+        else:
+            # ── Legacy binary model (2 classes) ──
+            fake_idx = self.model.config.label2id.get("Fake", 1)
+            real_idx = self.model.config.label2id.get("Real", 0)
+            fake_prob = float(probs[fake_idx].item() * 100.0)
+            real_prob = float(probs[real_idx].item() * 100.0)
+
+            top_idx = probs.argmax().item()
+            top_class = self.model.config.id2label.get(top_idx, str(top_idx))
+            top_confidence = float(probs[top_idx].item() * 100.0)
+            generation_method = None
+
+        label = "Fake" if fake_prob > real_prob else "Real"
+        confidence = max(fake_prob, real_prob)
+
         return {
             "label": label,
             "confidence": confidence,
             "fake_prob": fake_prob,
             "real_prob": real_prob,
+            "generation_method": generation_method,
+            "top_class": top_class,
+            "top_class_confidence": top_confidence,
         }
 
     # ─── face detection (MTCNN) ──────────────────────────────────────
@@ -297,21 +348,24 @@ class DeepTraceAnalyzer:
             inputs = self.processor(images=image, return_tensors="pt")
             
             calc_device = self.device
+            moved_to_cpu = False
             if self.device.type == 'mps':
                 calc_device = torch.device('cpu')
                 self.model.to(calc_device)
+                moved_to_cpu = True
 
-            pixel_values = inputs["pixel_values"].to(calc_device).requires_grad_(True)
+            try:
+                pixel_values = inputs["pixel_values"].to(calc_device).requires_grad_(True)
 
-            outputs = self.model(pixel_values=pixel_values)
-            pred = outputs.logits.argmax(dim=-1).item()
-            self.model.zero_grad()
-            outputs.logits[0, pred].backward()
+                outputs = self.model(pixel_values=pixel_values)
+                pred = outputs.logits.argmax(dim=-1).item()
+                self.model.zero_grad()
+                outputs.logits[0, pred].backward()
 
-            grads = pixel_values.grad.data.abs().mean(dim=1).squeeze().cpu().numpy()
-            
-            if self.device.type == 'mps':
-                self.model.to(self.device)
+                grads = pixel_values.grad.data.abs().mean(dim=1).squeeze().cpu().numpy()
+            finally:
+                if moved_to_cpu:
+                    self.model.to(self.device)
             
             # Smooth raw gradients to remove noise (simulates GradCAM blob)
             grads = cv2.GaussianBlur(grads, (11, 11), 0)

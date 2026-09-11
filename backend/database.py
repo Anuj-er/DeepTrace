@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 
@@ -27,11 +27,13 @@ def init_db():
 
 def create_user(name, email, hashed_password):
     """Inserts a new user and returns the user dict with a string ID."""
+    if db is None:
+        raise RuntimeError("Database is not connected")
     user_doc = {
         'name': name,
         'email': email,
         'hashed_password': hashed_password,
-        'created_at': datetime.utcnow()
+        'created_at': datetime.now(timezone.utc)
     }
     result = db.users.insert_one(user_doc)
     user_doc['_id'] = str(result.inserted_id)
@@ -39,6 +41,8 @@ def create_user(name, email, hashed_password):
 
 def get_user_by_email(email):
     """Retrieves a user by email, converting the ObjectId to a string."""
+    if db is None:
+        return None
     user = db.users.find_one({'email': email})
     if user:
         user['_id'] = str(user['_id'])
@@ -46,6 +50,8 @@ def get_user_by_email(email):
 
 def get_user_by_id(user_id):
     """Retrieves a user by their ID, converting it back to a string."""
+    if db is None:
+        return None
     try:
         obj_id = ObjectId(user_id)
     except Exception:
@@ -58,6 +64,8 @@ def get_user_by_id(user_id):
 
 def save_analysis(analysis_data, user_id, file_name):
     """Saves a new analysis result to the database."""
+    if db is None:
+        raise RuntimeError("Database is not connected")
     # Ensure analysis_id is provided, otherwise generate one
     analysis_id = analysis_data.get('id') or analysis_data.get('analysis_id')
     if not analysis_id:
@@ -69,19 +77,23 @@ def save_analysis(analysis_data, user_id, file_name):
         'verdict': analysis_data.get('verdict'),
         'confidence': analysis_data.get('confidence'),
         'risk_level': analysis_data.get('risk_level'),
+        'findings': analysis_data.get('findings', []),
+        'generation_method': analysis_data.get('generation_method'),
         'face_detection': analysis_data.get('face_detection', {}),
         'ela': analysis_data.get('ela', {}),
         'metadata': analysis_data.get('metadata', {}),
         'images': analysis_data.get('images', {}),
         'scores': analysis_data.get('scores', {}),
         'file_name': file_name,
-        'created_at': datetime.utcnow()
+        'created_at': datetime.now(timezone.utc)
     }
     db.analyses.insert_one(analysis_doc)
     return analysis_doc
 
 def get_analyses_by_user(user_id, verdict_filter=None, sort='newest'):
     """Returns a list of analyses for a specific user, optionally filtered and sorted."""
+    if db is None:
+        return []
     query = {'user_id': user_id}
     if verdict_filter:
         query['verdict'] = verdict_filter
@@ -97,6 +109,8 @@ def get_analyses_by_user(user_id, verdict_filter=None, sort='newest'):
 
 def get_analysis_by_id(analysis_id):
     """Retrieves a specific analysis by its string ID."""
+    if db is None:
+        return None
     doc = db.analyses.find_one({'_id': analysis_id})
     if not doc:
         # Fallback check just in case it was accidentally inserted as an ObjectId in the past

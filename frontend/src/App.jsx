@@ -9,6 +9,9 @@ import History from './components/History';
 import Settings from './components/Settings';
 import ReportPreview from './components/ReportPreview';
 
+// API base URL — uses Vite env var in production, empty string for dev (proxied by Vite)
+export const API_BASE = import.meta.env.VITE_API_URL || '';
+
 // Helper to get auth headers
 export function getAuthHeaders() {
   const token = localStorage.getItem('deeptrace_token');
@@ -28,7 +31,7 @@ function App() {
   useEffect(() => {
     const token = localStorage.getItem('deeptrace_token');
     if (token) {
-      fetch('/api/auth/me', {
+      fetch(`${API_BASE}/api/auth/me`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
         .then(res => {
@@ -56,7 +59,7 @@ function App() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const res = await fetch('/api/analyze', {
+      const res = await fetch(`${API_BASE}/api/analyze`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: formData,

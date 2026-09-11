@@ -11,7 +11,7 @@ import {
   Loader2,
   Download
 } from 'lucide-react';
-import { getAuthHeaders } from '../App';
+import { getAuthHeaders, API_BASE } from '../App';
 
 const History = ({ onNavigate }) => {
   const [history, setHistory] = useState([]);
@@ -30,7 +30,7 @@ const History = ({ onNavigate }) => {
       if (filter) params.set('verdict', filter);
       params.set('sort', sortOrder);
 
-      const res = await fetch(`/api/history?${params}`, {
+      const res = await fetch(`${API_BASE}/api/history?${params}`, {
         headers: getAuthHeaders(),
       });
 
@@ -201,7 +201,7 @@ const History = ({ onNavigate }) => {
                     <td className={`px-5 py-4 font-medium ${getRiskStyle(item.risk)}`}>{item.risk}</td>
                     <td className="px-5 py-4 text-right">
                       <button 
-                        onClick={() => window.open(`http://localhost:8000/api/report/${item.id}`, '_blank')}
+                        onClick={() => window.open(`${import.meta.env.VITE_API_URL || ''}/api/report/${item.id}`, '_blank')}
                         className="inline-flex items-center justify-center p-2 rounded-lg bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors"
                         title="Download PDF Report"
                       >
