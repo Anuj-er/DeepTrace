@@ -16,4 +16,3 @@ passlib[bcrypt]>=1.7.4
 cloudinary>=1.36.0
 python-dotenv>=1.0.0
 requests>=2.31.0
-gradio>=4.0.0
