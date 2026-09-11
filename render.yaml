@@ -20,7 +20,7 @@ services:
       - key: DEEPTRACE_MODEL
         value: dima806/deepfake_vs_real_image_detection
       - key: CORS_ORIGINS
-        value: https://deeptrace.onrender.com,http://localhost:5173
+        value: https://deeptrace-jha3.onrender.com,http://localhost:5173
       - key: PYTHON_VERSION
         value: "3.11.9"
     healthCheckPath: /api/health
