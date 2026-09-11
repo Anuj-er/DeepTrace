@@ -44,4 +44,3 @@ services:
     envVars:
       - key: VITE_API_URL
         value: https://deeptrace-api.onrender.com
-    plan: free
